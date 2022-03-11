@@ -1,0 +1,109 @@
+# "Replacing Bonds with Trend Following in 60/40 Portfolios"
+# (c) 2022 Rufus Rankin
+# http://www.rufusrankin.com 
+# This code and the referenced article 
+# Are for information purposes only
+# No investment advice or warranty is provided
+# By the author or his affiliates
+# Use at your own risk
+
+#################
+# Load packages #
+#################
+
+require(tidyquant)
+require(tidyverse)
+require(riingo)
+require(timetk)
+require(roll)
+require(future.apply)
+
+options(scipen = 50)
+
+###############
+# Function(s) #
+###############
+
+#compute performance statistics
+
+stratStats <- function(rets) {
+  stats <- rbind(table.AnnualizedReturns(rets), maxDrawdown(rets),CDD(rets),
+                 maxDrawdown(rets)/StdDev.annualized(rets),vami(rets))
+  #vami <- cumprod(1+rets)
+  #end.vami<- last(vami)
+  #stats[6,] <- stats[1,]/stats[4,]
+  #stats[7,] <- stats[1,]/stats[5,]
+  #stats[6,] <- stats[4,]/stats[3,]
+  stats[8,] <- price.rsq(rets)
+  stats[9,] <- skew(rets)
+  stats[10,]<- stats[1,]/stats[4,]
+  rownames(stats)[1] <- "AROR"
+  rownames(stats)[2] <- "SD"
+  rownames(stats)[3] <- "SR"
+  rownames(stats)[4] <- "MaxDD"
+  rownames(stats)[5] <- "CDaR"
+  rownames(stats)[6] <- "MDD/SD"
+  rownames(stats)[7] <- "END$"
+  rownames(stats)[8] <- "RSQ"
+  rownames(stats)[9] <- "SKEW"
+  rownames(stats)[10] <- "AR/MDD"
+  stats<-round(stats,4)
+  return(stats)
+}
+
+################
+# PREPARE DATA #
+################
+
+#SPY, VBIAX, SG INDICES 
+
+mp<-to.monthly(mkt.prices, OHLC = FALSE)
+
+sgp<-sgindexprices
+
+sgpm<-to.monthly(sgp[,1:2], OHLC = FALSE)
+
+ap<-na.omit(merge.xts(mp,sgpm))
+
+ar<-na.omit(diff(log(ap)))
+
+
+##############
+# PORTFOLIOS #
+##############
+
+sp_cta<-Return.portfolio(R=cbind(ar$SPY,ar$SGCTA),weights = c(0.60,0.40), rebalance_on = "years")
+
+sp_tr<-Return.portfolio(R=cbind(ar$SPY,ar$SGTREND), weights = c(0.60,0.40),rebalance_on = "years")
+
+comp<-na.omit(cbind(ar$VBIAX, sp_cta, sp_tr))
+
+colnames(comp)<-c("SixtyForty","CTA","TREND")
+
+index(comp)<-as.Date(index(comp)) #to.monthly uses yearmon
+
+#########################
+# PORTFOLIO PERFORMANCE #
+#########################
+
+charts.PerformanceSummary(comp, main = "Performance Comparison")
+
+stratStats(comp)
+
+#compare rolling 12 month cumulative returns
+
+roll_12<-na.omit(rollapply(comp,width = 12, FUN = Return.cumulative))
+
+#density plot
+
+r12<-data.frame(roll_12)
+
+require(reshape)
+
+new.r12<-melt(r12) # convert to 'long' format
+
+ggplot(new.r12, aes(x=value, fill = variable)) + geom_density(alpha = 0.25) + ggtitle("12 Month Cumulative Returns")
+
+#########
+###END###
+#########
